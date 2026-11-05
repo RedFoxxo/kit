@@ -27,6 +27,9 @@
   },
   "files": [
     "build/**/*.js",
+    "plugin/manifest.json",
+    "plugin/code.js",
+    "plugin/ui.html",
     "CHANGELOG.md",
     "LICENSE"
   ],

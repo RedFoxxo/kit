@@ -1,0 +1,26 @@
+{
+  "name": "kit bridge",
+  "id": "kit-bridge",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "permissions": ["currentuser"],
+  "enablePrivatePluginApi": true,
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": [
+      "ws://localhost:7380",
+      "ws://localhost:7381",
+      "ws://localhost:7382",
+      "ws://localhost:7383",
+      "ws://localhost:7384",
+      "ws://localhost:7385",
+      "ws://localhost:7386",
+      "ws://localhost:7387",
+      "ws://localhost:7388",
+      "ws://localhost:7389"
+    ]
+  }
+}

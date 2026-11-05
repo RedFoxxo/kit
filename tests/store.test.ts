@@ -24,6 +24,18 @@ describe('FileStore', () => {
     expect(ctx.http.calls.filter((c) => c === FILE)).toHaveLength(2)
   })
 
+  it('downloads again after an edit that keeps the version (no save checkpoint yet)', async () => {
+    let now = 0
+    const ctx = await context()
+    ctx.http.routes[META] = { file: { name: 'x', version: 'v1', last_touched_at: '2026-11-05T10:00:00Z' } }
+    const files = new FileStore(ctx.http, ctx.dir, () => now)
+    await files.get(KEY)
+    ctx.http.routes[META] = { file: { name: 'x', version: 'v1', last_touched_at: '2026-11-05T10:05:00Z' } }
+    now = 61_000
+    await files.get(KEY)
+    expect(ctx.http.calls.filter((c) => c === FILE)).toHaveLength(2)
+  })
+
   it('makes no request while the last check is recent', async () => {
     let now = 0
     const ctx = await context()

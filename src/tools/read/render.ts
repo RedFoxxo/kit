@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { parseNodeId } from '../../figma/refs.js'
+import { pluginFor } from '../plugin.js'
 import { failure, fileArg, openFile, resolveIds, text } from '../respond.js'
 import { defineTool } from '../types.js'
 
@@ -13,7 +15,7 @@ export function imageTokens(width: number, height: number): number {
 export const readRender = defineTool({
   name: 'read_render',
   description:
-    'Picture of one node. Costly: an image stays in context for the rest of the conversation (~1.4K tokens at 1024px). Use only for layout questions text cannot answer; render the smallest child that shows it, not whole screens.',
+    'Picture of one node. Costly: an image stays in context for the rest of the conversation (~1.4K tokens at 1024px). Use only for layout questions text cannot answer; render the smallest child that shows it, not whole screens. Taken live from Figma when the kit bridge plugin runs in the file (shows edits at once), else from the REST API.',
   input: {
     file: fileArg,
     id: z.string().describe('Node id or node URL'),
@@ -21,6 +23,23 @@ export const readRender = defineTool({
     format: z.enum(['png', 'jpg']).optional().describe('png (default) for UI, jpg for photos'),
   },
   async handler({ file, id, maxEdge, format }, ctx, signal) {
+    const edge = maxEdge ?? 1024
+    const fmt = format ?? 'png'
+    const mimeType = fmt === 'png' ? 'image/png' : 'image/jpeg'
+
+    // Live from the editor: no REST call, no rate limit, and edits just made are already there.
+    const live = ctx.bridge.connections.size > 0 ? await pluginFor(ctx, file, signal) : undefined
+    const liveId = parseNodeId(id)
+    if (live?.ok && liveId) {
+      try {
+        const r = await live.connection.request<{ data: string; width: number; height: number; name: string }>('render', { id: liveId, maxEdge: edge, format: fmt }, 120_000)
+        const note = text(`${liveId} "${r.name.trim()}" ${r.width}×${r.height} ${fmt} (live), ~${imageTokens(r.width, r.height)} tokens`)
+        return { content: [...note.content, { type: 'image', data: r.data, mimeType }] }
+      } catch (error) {
+        return failure(`Plugin error: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
     const opened = await openFile(ctx, file, signal)
     if (!opened.ok) return opened.error
     const f = opened.file
@@ -30,8 +49,6 @@ export const readRender = defineTool({
     const box = f.node(nodeId)!.absoluteBoundingBox
     if (!box || box.width <= 0 || box.height <= 0) return failure(`Node ${nodeId} has no size to render`)
 
-    const edge = maxEdge ?? 1024
-    const fmt = format ?? 'png'
     const scale = Math.min(2, Math.max(0.01, edge / Math.max(box.width, box.height)))
     const scaleText = scale.toFixed(3)
     const width = Math.round(box.width * scale)
@@ -58,7 +75,7 @@ export const readRender = defineTool({
 
     const note = text(`${nodeId} "${f.node(nodeId)!.name.trim()}" ${width}×${height} ${fmt}, ~${imageTokens(width, height)} tokens`)
     return {
-      content: [...note.content, { type: 'image', data: data.toString('base64'), mimeType: fmt === 'png' ? 'image/png' : 'image/jpeg' }],
+      content: [...note.content, { type: 'image', data: data.toString('base64'), mimeType }],
     }
   },
 })

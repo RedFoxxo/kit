@@ -10,6 +10,8 @@ export class FigmaFile {
   readonly version: string
   readonly lastModified: string
   readonly raw: FileResponse
+  /** True when edits made through the plugin are not in this REST snapshot yet. */
+  stale = false
   private readonly nodes = new Map<string, FigmaNode>()
   private readonly parents = new Map<string, string>()
 
@@ -85,6 +87,8 @@ const RECHECK_MS = 60_000
  */
 export class FileStore {
   private readonly memory = new Map<string, { file: FigmaFile; checkedAt: number }>()
+  /** Snapshot version as it was before a plugin edit, per file, until REST reports a newer one. */
+  private readonly edited = new Map<string, string>()
 
   constructor(
     private readonly http: Http,
@@ -97,7 +101,17 @@ export class FileStore {
     if (cached && this.now() - cached.checkedAt < RECHECK_MS) return { ok: true, data: cached.file }
 
     const meta = await this.http.json<MetaResponse>(`/v1/files/${key}/meta`, signal)
-    const version = meta.ok ? (meta.data.file.version ?? meta.data.file.last_touched_at) : undefined
+    // `version` only moves at Figma's save checkpoints; `last_touched_at` moves on every edit. Together they name a snapshot.
+    const version = meta.ok ? [meta.data.file.version, meta.data.file.last_touched_at].filter(Boolean).join('@') || undefined : undefined
+    // REST shows plugin edits only after a few seconds; until then it still reports the version from before the edit.
+    const behind = version !== undefined && this.edited.get(key) === version
+    if (!behind) this.edited.delete(key)
+    const settle = (raw: FileResponse) => {
+      const file = this.remember(key, raw)
+      file.stale = behind
+      if (behind) this.memory.delete(key)
+      return file
+    }
     if (cached && (version === undefined ? !meta.ok : version === cached.file.version)) {
       // Unchanged, or the version cannot be checked right now: keep what we have.
       cached.checkedAt = this.now()
@@ -106,7 +120,7 @@ export class FileStore {
 
     if (version !== undefined) {
       const fromDisk = await this.readDisk(key, version)
-      if (fromDisk) return { ok: true, data: this.remember(key, fromDisk) }
+      if (fromDisk) return { ok: true, data: settle(fromDisk) }
     }
 
     const fetched = await this.http.json<FileResponse>(`/v1/files/${key}`, signal)
@@ -114,7 +128,14 @@ export class FileStore {
     // Key the snapshot by the version meta reported, so the next check matches it.
     const raw = { ...fetched.data, version: version ?? fetched.data.version }
     await this.writeDisk(key, raw)
-    return { ok: true, data: this.remember(key, raw) }
+    return { ok: true, data: settle(raw) }
+  }
+
+  /** Call after an edit made through the plugin: the next read checks the version again and flags a snapshot that is still from before the edit. */
+  forget(key: string): void {
+    const before = this.memory.get(key)?.file.version
+    if (before !== undefined && !this.edited.has(key)) this.edited.set(key, before)
+    this.memory.delete(key)
   }
 
   /** Folder for this file's cached data (renders live here too). */

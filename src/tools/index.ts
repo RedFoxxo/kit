@@ -1,13 +1,30 @@
+import { readBridge } from './read/bridge.js'
 import { readComments } from './read/comments.js'
 import { readOutline } from './read/outline.js'
 import { readRender } from './read/render.js'
 import { readStructure, readStyles } from './read/structure.js'
 import { readFrameText, readSearch } from './read/text.js'
 import type { ToolDef } from './types.js'
+import { writeComment } from './write/comment.js'
+import { deleteNodes, execRun, writeCreate, writeProps } from './write/edit.js'
 
 export type AnyToolDef = ToolDef<any>
 
 /** Every tool kit registers, in registration order. Keep the list short: each tool costs prompt tokens on every request. */
 export function allTools(): AnyToolDef[] {
-  return [readOutline, readFrameText, readSearch, readComments, readStructure, readStyles, readRender]
+  return [
+    readOutline,
+    readFrameText,
+    readSearch,
+    readComments,
+    readStructure,
+    readStyles,
+    readRender,
+    readBridge,
+    writeProps,
+    writeCreate,
+    writeComment,
+    deleteNodes,
+    execRun,
+  ]
 }

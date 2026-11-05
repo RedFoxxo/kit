@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { z } from 'zod'
+import type { Bridge } from '../bridge/bridge.js'
 import type { Http } from '../figma/http.js'
 import type { FileStore } from '../figma/store.js'
 
@@ -10,6 +11,7 @@ export const TIERS: readonly Tier[] = ['read', 'write', 'delete', 'exec']
 export interface ToolContext {
   http: Http
   files: FileStore
+  bridge: Bridge
 }
 
 export interface ToolDef<S extends z.ZodRawShape = z.ZodRawShape> {

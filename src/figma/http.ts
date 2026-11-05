@@ -7,6 +7,8 @@ export type Result<T> =
 export interface Http {
   /** GET a Figma API path (e.g. `/v1/files/KEY/meta`) and parse JSON. */
   json<T>(path: string, signal?: AbortSignal): Promise<Result<T>>
+  /** POST JSON to a Figma API path and parse the JSON answer. */
+  post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<Result<T>>
   /** GET an absolute URL (rendered images) as bytes. Sends no token. */
   bytes(url: string, signal?: AbortSignal): Promise<Result<{ data: Buffer; type: string }>>
 }
@@ -15,7 +17,7 @@ type Fetch = typeof fetch
 
 export function createHttp(opts: { token: string; apiBase: string }, fetchImpl: Fetch = fetch): Http {
   const redact = (text: string): string => text.split(opts.token).join('***')
-  const userAgent = `kit/${VERSION}`
+  const headers = { 'X-Figma-Token': opts.token, 'User-Agent': `kit/${VERSION}` }
 
   async function failure(response: Response): Promise<{ ok: false; status: number; message: string; retryAfter?: number }> {
     const body = redact(await response.text().catch(() => ''))
@@ -35,19 +37,25 @@ export function createHttp(opts: { token: string; apiBase: string }, fetchImpl: 
     }
   }
 
+  async function call<T>(path: string, init: RequestInit): Promise<Result<T>> {
+    try {
+      const response = await fetchImpl(`${opts.apiBase}${path}`, init)
+      if (!response.ok) return failure(response)
+      return { ok: true, data: (await response.json()) as T }
+    } catch (error) {
+      return { ok: false, status: 0, message: redact(error instanceof Error ? error.message : String(error)) }
+    }
+  }
+
   return {
-    async json<T>(path: string, signal?: AbortSignal): Promise<Result<T>> {
-      try {
-        const response = await fetchImpl(`${opts.apiBase}${path}`, {
-          headers: { 'X-Figma-Token': opts.token, 'User-Agent': userAgent },
-          ...(signal ? { signal } : {}),
-        })
-        if (!response.ok) return failure(response)
-        return { ok: true, data: (await response.json()) as T }
-      } catch (error) {
-        return { ok: false, status: 0, message: redact(error instanceof Error ? error.message : String(error)) }
-      }
-    },
+    json: <T>(path: string, signal?: AbortSignal) => call<T>(path, { headers, ...(signal ? { signal } : {}) }),
+    post: <T>(path: string, body: unknown, signal?: AbortSignal) =>
+      call<T>(path, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
+      }),
     async bytes(url: string, signal?: AbortSignal) {
       try {
         const response = await fetchImpl(url, signal ? { signal } : {})

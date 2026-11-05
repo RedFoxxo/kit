@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <body style="font: 12px system-ui, sans-serif; margin: 10px; color: var(--figma-color-text, #222)">
+    <strong>kit bridge</strong>
+    <div id="status" style="margin-top: 6px">Looking for kit…</div>
+    <div style="margin-top: 6px; color: var(--figma-color-text-secondary, #777)">Keep this window open while the AI works on the file.</div>
+    <script>
+      // Keep in sync with PORTS in src/bridge/bridge.ts and the manifest.
+      const PORTS = [7380, 7381, 7382, 7383, 7384, 7385, 7386, 7387, 7388, 7389]
+      const sockets = new Map()
+      const status = document.getElementById('status')
+
+      function render() {
+        const ports = [...sockets.keys()]
+        status.textContent = ports.length === 0 ? 'Looking for kit…' : `Connected to ${ports.length} kit session(s) (port ${ports.join(', ')})`
+      }
+
+      function connect(port) {
+        if (sockets.has(port)) return
+        let ws
+        try {
+          ws = new WebSocket(`ws://localhost:${port}`)
+        } catch {
+          return
+        }
+        ws.onopen = () => {
+          sockets.set(port, ws)
+          render()
+        }
+        ws.onmessage = (event) => {
+          let msg
+          try {
+            msg = JSON.parse(event.data)
+          } catch {
+            return
+          }
+          parent.postMessage({ pluginMessage: { type: 'request', port, id: msg.id, method: msg.method, params: msg.params } }, '*')
+        }
+        ws.onclose = () => {
+          if (sockets.get(port) === ws) sockets.delete(port)
+          render()
+        }
+        ws.onerror = () => ws.close()
+      }
+
+      window.onmessage = (event) => {
+        const msg = event.data && event.data.pluginMessage
+        if (!msg || msg.type !== 'response') return
+        const ws = sockets.get(msg.port)
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(msg.error !== undefined ? { id: msg.id, error: msg.error } : { id: msg.id, result: msg.result }))
+        }
+      }
+
+      const scan = () => PORTS.forEach(connect)
+      scan()
+      setInterval(scan, 3000)
+    </script>
+  </body>
+</html>

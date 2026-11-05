@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { Http, Result } from '../src/figma/http.js'
 import { FileStore } from '../src/figma/store.js'
 import type { FigmaNode, FileResponse } from '../src/figma/types.js'
+import { Bridge } from '../src/bridge/bridge.js'
 import type { ToolContext } from '../src/tools/types.js'
 
 export const KEY = 'Uf0Jb2M1xIqob6m37jDSrH'
@@ -95,6 +96,10 @@ export function fakeHttp(routes: Record<string, unknown>): FakeHttp {
       if (route === undefined) return { ok: false, status: 404, message: 'Not found' }
       return { ok: true, data: structuredClone(route) as T }
     },
+    async post<T>(path: string, body: unknown): Promise<Result<T>> {
+      calls.push(`POST ${path} ${JSON.stringify(body)}`)
+      return { ok: true, data: { id: '777' } as T }
+    },
     async bytes(url: string) {
       calls.push(url)
       return { ok: true, data: { data: Buffer.from('PNGDATA'), type: 'image/png' } }
@@ -109,7 +114,7 @@ export async function context(file: FileResponse = sampleFile(), extra: Record<s
     ...extra,
   })
   const dir = await mkdtemp(join(tmpdir(), 'kit-test-'))
-  return { http, files: new FileStore(http, dir), dir }
+  return { http, files: new FileStore(http, dir), bridge: new Bridge(), dir }
 }
 
 export function textOf(result: { content: { type: string; text?: string }[] }): string {

@@ -55,5 +55,6 @@ export function resolveIds(file: FigmaFile, inputs: string[]): { ids: string[]; 
 
 /** Header every file-level answer starts with, so the reader knows which snapshot it saw. */
 export function fileHeader(file: FigmaFile): string {
-  return `${file.name} · key ${file.key} · version ${file.version} · modified ${file.lastModified}`
+  const head = `${file.name} · key ${file.key} · version ${file.version} · modified ${file.lastModified}`
+  return file.stale ? `${head}\n! Figma's API does not show your latest plugin edits yet; read again in a few seconds for them.` : head
 }
