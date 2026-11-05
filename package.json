@@ -1,0 +1,55 @@
+{
+  "name": "@redfoxxo/kit",
+  "version": "0.1.0",
+  "description": "Token-lean MCP server for Figma: read designs as compact text, render only on demand",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "figma",
+    "design",
+    "ai",
+    "claude"
+  ],
+  "author": "Foxxo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RedFoxxo/kit.git"
+  },
+  "homepage": "https://github.com/RedFoxxo/kit#readme",
+  "bugs": {
+    "url": "https://github.com/RedFoxxo/kit/issues"
+  },
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "kit": "build/index.js"
+  },
+  "files": [
+    "build/**/*.js",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('build', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
