@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 1.0.0 (2026-11-05)
 
 - Read tools: `read_outline`, `read_frame_text`, `read_search`,
   `read_comments`, `read_structure`, `read_styles`, `read_render`.

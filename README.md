@@ -49,7 +49,7 @@ client approval rules can allow reads, ask before writes and block `exec_run`.
    ```json
    {
      "mcpServers": {
-       "kit": { "command": "npx", "args": ["-y", "@redfoxxo/kit@0"], "env": { "FIGMA_TOKEN": "${FIGMA_TOKEN}" } }
+       "kit": { "command": "npx", "args": ["-y", "@redfoxxo/kit@1"], "env": { "FIGMA_TOKEN": "${FIGMA_TOKEN}" } }
      }
    }
    ```
@@ -65,7 +65,7 @@ Figma's REST API cannot change designs, so edits go through a plugin running
 in Figma desktop. It talks to kit over a WebSocket on `localhost`
 (ports 7380–7389) and connects to every kit session running on the machine.
 
-1. Run `npx -y @redfoxxo/kit@0 plugin`. It copies the plugin to `~/.kit/plugin`
+1. Run `npx -y @redfoxxo/kit@1 plugin`. It copies the plugin to `~/.kit/plugin`
    and prints the manifest path.
 2. In Figma desktop: Plugins → Development → Import plugin from manifest…, and
    pick that path. Once per machine.

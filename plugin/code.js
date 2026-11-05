@@ -1,6 +1,6 @@
 // kit bridge, plugin side: runs requests from kit with the Plugin API.
 // The UI iframe holds the WebSocket; this file has no network access.
-const VERSION = '0.1.0'
+const VERSION = '1.0.0'
 // Bump with PROTOCOL in src/bridge/bridge.ts whenever methods or their parameters change.
 const PROTOCOL = 3
 const DEFAULT_FONT = { family: 'Inter', style: 'Regular' }

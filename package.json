@@ -1,6 +1,6 @@
 {
   "name": "@redfoxxo/kit",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Token-lean MCP server for Figma: read designs as compact text, render only on demand",
   "keywords": [
     "mcp",
