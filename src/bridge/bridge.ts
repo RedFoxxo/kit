@@ -4,7 +4,7 @@ import { listen, type Socket } from './ws.js'
 export const PORTS = [7380, 7381, 7382, 7383, 7384, 7385, 7386, 7387, 7388, 7389] as const
 
 /** Plugin methods and parameters this kit expects; must equal PROTOCOL in plugin/code.js. */
-export const PROTOCOL = 2
+export const PROTOCOL = 3
 
 /** What the plugin reports about the file it runs in. */
 export interface PluginInfo {
@@ -13,6 +13,8 @@ export interface PluginInfo {
   page: { id: string; name: string }
   user: string | null
   selection: number
+  /** The first 50 selected nodes (protocol 3+). */
+  selected?: { id: string; type: string; name: string; width?: number; height?: number }[]
   pluginVersion: string
   /** Missing in plugins older than protocol 2. */
   protocol?: number

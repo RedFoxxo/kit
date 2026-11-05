@@ -15,3 +15,13 @@
 - `read_render` exports live through the plugin when it runs in the file.
 - Reads made before Figma's API shows a plugin edit are flagged as stale.
 - An outdated plugin is refused with instructions to update it.
+- `read_bridge` lists the selected nodes, so "what I selected" can be read or
+  edited by id.
+- `read_styles` includes local variables with a value per mode, read through
+  the plugin (Figma's REST variables API needs an Enterprise plan).
+- Images from a file path or URL as node fills (`image` prop); kit reads them,
+  since the plugin has no file or network access.
+- Mixed text styles with `textRanges` (by substring or character range).
+- `write_create` builds components and variant sets; `component: true` turns
+  an existing node into a component.
+- `select: true` selects the created or changed nodes and brings them into view.

@@ -28,7 +28,7 @@ async function plugin(port: number, fileName = 'Sample App'): Promise<WebSocket>
   ws.onmessage = (event) => {
     const msg = JSON.parse(String(event.data))
     if (msg.method === 'info') {
-      ws.send(JSON.stringify({ id: msg.id, result: { fileKey: 'KEY123', fileName, page: { id: '0:1', name: 'WebApp' }, user: 'Ada', selection: 2, pluginVersion: '0.1.0', protocol: 2 } }))
+      ws.send(JSON.stringify({ id: msg.id, result: { fileKey: 'KEY123', fileName, page: { id: '0:1', name: 'WebApp' }, user: 'Ada', selection: 2, pluginVersion: '0.1.0', protocol: 3 } }))
     } else if (msg.method === 'echo') ws.send(JSON.stringify({ id: msg.id, result: msg.params }))
     else ws.send(JSON.stringify({ id: msg.id, error: `unknown method "${msg.method}"` }))
   }

@@ -1,15 +1,27 @@
 import { z } from 'zod'
 import { failure, fileArg, text } from '../respond.js'
-import { defineTool } from '../types.js'
+import { defineTool, type ToolContext } from '../types.js'
 import { change, pluginFor } from '../plugin.js'
+import { embedImages } from './images.js'
 
 const props = z
   .record(z.string(), z.unknown())
   .describe(
-    'Any of: name, visible, locked, x, y, width, height, rotation, opacity, text, fontSize, fontName {family,style}, textAlignHorizontal, textAutoResize, lineHeight, letterSpacing, textCase, fills/strokes (hex "#RRGGBB[AA]" or Figma paints, gradients included), strokeWeight, strokeAlign, cornerRadius, effects ([{type: drop|inner|glow|blur|background-blur, color, x, y, radius, spread}]), fillStyle/strokeStyle/textStyle/effectStyle (style name), layoutMode, itemSpacing, padding (n or [t,r,b,l]), primaryAxisAlignItems, counterAxisAlignItems, layoutSizingHorizontal/Vertical, layoutWrap, layoutGrow, layoutPositioning, clipsContent, constraints, arcData, componentProperties, parent (node id), index. width/height stay fixed under auto layout unless a sizing mode is given',
+    'Any of: name, visible, locked, x, y, width, height, rotation, opacity, text, fontSize, fontName {family,style}, textAlignHorizontal, textAutoResize, lineHeight, letterSpacing, textCase, textRanges ([{text (each occurrence; first: true for one) or start/end, fontName, fontSize, fills, textDecoration, textCase, letterSpacing, hyperlink}] for mixed styles), fills/strokes (hex "#RRGGBB[AA]" or Figma paints, gradients included), image (file path or URL, or {src, scaleMode: FILL|FIT|CROP|TILE}; PNG/JPEG/GIF), strokeWeight, strokeAlign, cornerRadius, effects ([{type: drop|inner|glow|blur|background-blur, color, x, y, radius, spread}]), fillStyle/strokeStyle/textStyle/effectStyle (style name), layoutMode, itemSpacing, padding (n or [t,r,b,l]), primaryAxisAlignItems, counterAxisAlignItems, layoutSizingHorizontal/Vertical, layoutWrap, layoutGrow, layoutPositioning, clipsContent, constraints, arcData, componentProperties, component (true: turn the node into a component), select (true: select it and bring it into view), parent (node id), index. width/height stay fixed under auto layout unless a sizing mode is given',
   )
 
 const NEEDS_PLUGIN = 'Needs the kit bridge plugin running in that file (read_bridge).'
+
+/** Runs a change after reading the images it names; a bad image stops the call before anything is sent. */
+async function changeWithImages(ctx: ToolContext, file: string, method: string, params: unknown, signal?: AbortSignal) {
+  let embedded: unknown
+  try {
+    embedded = await embedImages(params, ctx.http, signal)
+  } catch (error) {
+    return failure(`Not sent: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return change(ctx, file, method, embedded, signal)
+}
 
 export const writeProps = defineTool({
   name: 'write_props',
@@ -18,11 +30,14 @@ export const writeProps = defineTool({
     file: fileArg,
     edits: z.array(z.object({ id: z.string(), props })).min(1),
   },
-  handler: ({ file, edits }, ctx, signal) => change(ctx, file, 'props', { edits: edits.map((e) => ({ ...e, id: e.id.replace(/-/g, ':') })) }, signal),
+  handler: ({ file, edits }, ctx, signal) =>
+    changeWithImages(ctx, file, 'props', { edits: edits.map((e) => ({ ...e, id: e.id.replace(/-/g, ':') })) }, signal),
 })
 
+const NODE_TYPES = ['FRAME', 'SECTION', 'RECTANGLE', 'ELLIPSE', 'TEXT', 'INSTANCE', 'COMPONENT', 'COMPONENT_SET'] as const
+
 interface NodeSpec {
-  type: 'FRAME' | 'SECTION' | 'RECTANGLE' | 'ELLIPSE' | 'TEXT' | 'INSTANCE'
+  type: (typeof NODE_TYPES)[number]
   componentKey?: string | undefined
   componentId?: string | undefined
   props?: Record<string, unknown> | undefined
@@ -30,7 +45,7 @@ interface NodeSpec {
 }
 
 const nodeSpec: z.ZodType<NodeSpec> = z.object({
-  type: z.enum(['FRAME', 'SECTION', 'RECTANGLE', 'ELLIPSE', 'TEXT', 'INSTANCE']),
+  type: z.enum(NODE_TYPES),
   componentKey: z.string().optional(),
   componentId: z.string().optional(),
   props: props.optional(),
@@ -41,13 +56,13 @@ const nodeSpec: z.ZodType<NodeSpec> = z.object({
 
 export const writeCreate = defineTool({
   name: 'write_create',
-  description: `Create nodes under a parent (default: the current page): FRAME, SECTION, RECTANGLE, ELLIPSE, TEXT, or INSTANCE of a component (componentKey from read_styles, or componentId). Nest \`children\` to build a whole tree in one call. ${NEEDS_PLUGIN}`,
+  description: `Create nodes under a parent (default: the current page): FRAME, SECTION, RECTANGLE, ELLIPSE, TEXT, COMPONENT, COMPONENT_SET (its children are COMPONENT variants named "Prop=Value, Other=Value"), or INSTANCE of a component (componentKey from read_styles, or componentId). Nest \`children\` to build a whole tree in one call. ${NEEDS_PLUGIN}`,
   input: {
     file: fileArg,
     parent: z.string().optional().describe('Parent node id'),
     nodes: z.array(nodeSpec).min(1),
   },
-  handler: ({ file, parent, nodes }, ctx, signal) => change(ctx, file, 'create', { parent: parent?.replace(/-/g, ':'), nodes }, signal),
+  handler: ({ file, parent, nodes }, ctx, signal) => changeWithImages(ctx, file, 'create', { parent: parent?.replace(/-/g, ':'), nodes }, signal),
 })
 
 export const deleteNodes = defineTool({

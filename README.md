@@ -9,7 +9,7 @@ size-capped.
 On a real 33-screen file, reading the outline, the text of every screen, all
 comments, one layer tree, the styles and one small render cost about 40K
 characters (~12K tokens) in total. The thirteen tool definitions add about
-9K characters to every request.
+11K characters to every request.
 
 ## Tools
 
@@ -20,11 +20,11 @@ characters (~12K tokens) in total. The thirteen tool definitions add about
 | `read_search` | Screens containing a text or layer name (case and accent insensitive) |
 | `read_comments` | Comment threads with the screen each is pinned to, filterable by node |
 | `read_structure` | One line per layer: size, auto layout, fills, strokes, radius, text style, component |
-| `read_styles` | Styles with values, components and component sets with keys |
+| `read_styles` | Variables per collection and mode (plugin), styles with values, components and component sets with keys |
 | `read_render` | A picture of one node, longest side 1024px by default, with its token cost; live from Figma when the plugin runs in the file |
-| `read_bridge` | Files open in Figma with the plugin running |
-| `write_props` | Change texts and properties of existing nodes (plugin) |
-| `write_create` | Create frames, sections, shapes, texts and component instances, nested trees in one call (plugin) |
+| `read_bridge` | Files open in Figma with the plugin running, and the nodes selected in each |
+| `write_props` | Change texts (mixed styles too), paints, images, effects, layout and component properties; turn a node into a component (plugin) |
+| `write_create` | Create frames, sections, shapes, texts, components, variant sets and instances, nested trees in one call (plugin) |
 | `write_comment` | Post a comment or a reply (REST, no plugin needed) |
 | `delete_nodes` | Delete nodes (plugin) |
 | `exec_run` | Run JavaScript with the full Figma Plugin API (plugin) |

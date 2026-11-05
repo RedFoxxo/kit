@@ -63,8 +63,9 @@ src/
     types.ts, respond.ts, index.ts
     plugin.ts       pick the plugin running in the named file (refuses an outdated one), run a change, report it
     read/           read_outline, read_frame_text, read_search, read_comments,
-                    read_structure, read_styles, read_render (live through the plugin when it runs in the file), read_bridge
-    write/          edit.ts: write_props, write_create (nested children), delete_nodes, exec_run; comment.ts: write_comment (REST)
+                    read_structure, read_styles (variables through the plugin), read_render (live through the plugin when it runs in the file), read_bridge (with the selection)
+    write/          edit.ts: write_props, write_create (nested children, components, variant sets), delete_nodes, exec_run;
+                    images.ts: reads image files and URLs into base64 for the plugin; comment.ts: write_comment (REST)
   bridge/
     ws.ts           minimal RFC 6455 server: loopback only, origin "null" or none, text frames
     bridge.ts       ports 7380–7389 (first free), connections, request/response by id with timeout
@@ -86,8 +87,12 @@ plugin/             the Figma plugin, plain JS: manifest.json, code.js (Plugin A
   old plugin and tells the user to run `kit plugin` and relaunch it.
 - `PORTS` in `src/bridge/bridge.ts`, `PORTS` in `plugin/ui.html` and
   `devAllowedDomains` in `plugin/manifest.json` must list the same ports.
-- `plugin/code.js` runs only inside Figma: test its behavior by hand in a
-  scratch file after changing it.
+- `plugin/code.js` runs inside Figma. `tests/fake-figma.ts` runs it in Node
+  against a fake `figma` that keeps the rules kit depends on (fonts loaded
+  before text changes, removed nodes, variants must be components); still try
+  a change by hand in a scratch file before relying on it.
+- The plugin has no file or network access: the server reads images and sends
+  their bytes.
 - Figma runs plugin code on its main thread: one call that creates hundreds of
   nodes can take over a minute. Requests time out after 120 s, but the work
   may still finish; the timeout message says to check the file before retrying.
@@ -102,6 +107,7 @@ itself (`FigmaFile.frameOf`).
 
 `tests/fixture.ts` builds a small file and a fake HTTP layer that records
 calls. Bridge and write tests start a real bridge on ports 47380+ and connect
-a fake plugin with Node's `WebSocket`. Tests check behavior a user would
-notice: what an answer contains, what is left out, paging, which plugin gets a
-change, and how many requests are made.
+a fake plugin with Node's `WebSocket`. Plugin tests (`tests/plugin.test.ts`)
+run `plugin/code.js` on `tests/fake-figma.ts`. Tests check behavior a user
+would notice: what an answer contains, what is left out, paging, which plugin
+gets a change, what ends up in the document, and how many requests are made.

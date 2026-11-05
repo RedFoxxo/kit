@@ -2,8 +2,9 @@ import { z } from 'zod'
 import type { FigmaFile } from '../../figma/store.js'
 import type { FigmaNode } from '../../figma/types.js'
 import { cleanText, isVisible, paint, size } from '../../format/nodes.js'
+import { pluginFor } from '../plugin.js'
 import { fileArg, fileHeader, lines, offsetArg, openFile, resolveIds } from '../respond.js'
-import { defineTool } from '../types.js'
+import { defineTool, type ToolContext } from '../types.js'
 
 /** One compact line of layout and style facts for a node. */
 export function describe(f: FigmaFile, node: FigmaNode): string {
@@ -90,15 +91,41 @@ export const readStructure = defineTool({
 export const readStyles = defineTool({
   name: 'read_styles',
   description:
-    "The file's design tokens as Figma styles (colors, text, effects, grids) with their values, and its components and component sets with keys.",
+    "The file's design tokens: local variables per collection with a value per mode (needs the kit bridge plugin in the file), Figma styles (colors, text, effects, grids) with their values, and its components and component sets with keys.",
   input: { file: fileArg, offset: offsetArg },
   async handler({ file, offset }, ctx, signal) {
     const opened = await openFile(ctx, file, signal)
     if (!opened.ok) return opened.error
     const f = opened.file
-    return lines([fileHeader(f), ...styleLines(f)], offset)
+    return lines([fileHeader(f), ...(await variableLines(ctx, file, signal)), ...styleLines(f)], offset)
   },
 })
+
+interface Collection {
+  name: string
+  modes: string[]
+  variables: { name: string; type: string; values: string[] }[]
+}
+
+/** Variables come from the plugin: Figma's REST variables API needs an Enterprise plan. */
+async function variableLines(ctx: ToolContext, file: string, signal?: AbortSignal): Promise<string[]> {
+  if (ctx.bridge.connections.size === 0) return ['Variables: not read (run the kit bridge plugin in this file to include them).']
+  const target = await pluginFor(ctx, file, signal)
+  if (!target.ok) return ['Variables: not read (the kit bridge plugin is not running in this file).']
+  let collections: Collection[]
+  try {
+    collections = await target.connection.request<Collection[]>('variables', {}, 30_000)
+  } catch (error) {
+    return [`Variables: not read (${error instanceof Error ? error.message : String(error)}).`]
+  }
+  if (collections.length === 0) return ['No variables.']
+  const out: string[] = []
+  for (const c of collections) {
+    out.push(`VARIABLES "${c.name}" modes: ${c.modes.join(' | ')}`)
+    for (const v of c.variables) out.push(`  ${v.type} "${v.name}" ${v.values.join(' | ')}`)
+  }
+  return out
+}
 
 function styleLines(f: FigmaFile): string[] {
   // A style's value is read from the first node that uses it.

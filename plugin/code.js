@@ -2,8 +2,10 @@
 // The UI iframe holds the WebSocket; this file has no network access.
 const VERSION = '0.1.0'
 // Bump with PROTOCOL in src/bridge/bridge.ts whenever methods or their parameters change.
-const PROTOCOL = 2
+const PROTOCOL = 3
 const DEFAULT_FONT = { family: 'Inter', style: 'Regular' }
+/** Selected nodes listed by `info`; the count is always exact. */
+const SELECTION_LIMIT = 50
 
 figma.showUI(__html__, { width: 260, height: 110, themeColors: true })
 
@@ -63,6 +65,42 @@ async function localStyle(kind, name) {
   return s
 }
 
+/**
+ * Character ranges a `textRanges` item targets: `start`/`end`, or every
+ * (or the first, with `first: true`) occurrence of `text`.
+ */
+function rangesOf(characters, r) {
+  if (typeof r.start === 'number') {
+    const end = typeof r.end === 'number' ? r.end : characters.length
+    if (r.start < 0 || end > characters.length || r.start >= end) throw new Error(`range ${r.start}–${end} outside the text (${characters.length} characters)`)
+    return [[r.start, end]]
+  }
+  if (typeof r.text !== 'string' || r.text === '') throw new Error('a text range needs start/end or text')
+  const found = []
+  for (let i = characters.indexOf(r.text); i !== -1; i = characters.indexOf(r.text, i + r.text.length)) {
+    found.push([i, i + r.text.length])
+    if (r.first) break
+  }
+  if (found.length === 0) throw new Error(`"${r.text}" not found in the text`)
+  return found
+}
+
+async function applyRanges(n, ranges) {
+  await loadFonts(n)
+  for (const r of ranges) {
+    if (r.fontName) await figma.loadFontAsync(r.fontName)
+    for (const [s, e] of rangesOf(n.characters, r)) {
+      if (r.fontName) n.setRangeFontName(s, e, r.fontName)
+      if (r.fontSize !== undefined) n.setRangeFontSize(s, e, r.fontSize)
+      if (r.fills !== undefined) n.setRangeFills(s, e, paints(r.fills))
+      if (r.textDecoration) n.setRangeTextDecoration(s, e, r.textDecoration)
+      if (r.textCase) n.setRangeTextCase(s, e, r.textCase)
+      if (r.letterSpacing !== undefined) n.setRangeLetterSpacing(s, e, r.letterSpacing)
+      if (r.hyperlink !== undefined) n.setRangeHyperlink(s, e, r.hyperlink ? { type: 'URL', value: r.hyperlink } : null)
+    }
+  }
+}
+
 const PLAIN = new Set([
   'name', 'visible', 'locked', 'x', 'y', 'rotation', 'opacity', 'blendMode', 'cornerRadius', 'strokeWeight', 'strokeAlign',
   'itemSpacing', 'counterAxisSpacing', 'layoutMode', 'primaryAxisAlignItems', 'counterAxisAlignItems', 'layoutSizingHorizontal',
@@ -70,6 +108,10 @@ const PLAIN = new Set([
 ])
 const TEXT_PLAIN = new Set(['fontSize', 'textAlignHorizontal', 'textAutoResize', 'lineHeight', 'letterSpacing', 'textCase', 'textDecoration'])
 
+/** Nodes to select and bring into view once the current call is done (`select: true`). */
+let toSelect = []
+
+/** Applies props; returns the node, which `component: true` replaces with a new component. */
 async function apply(n, props) {
   for (const [k, v] of Object.entries(props)) {
     if (PLAIN.has(k)) n[k] = v
@@ -91,7 +133,11 @@ async function apply(n, props) {
     } else if (k === 'fills') n.fills = paints(v)
     else if (k === 'effects') n.effects = effects(v)
     else if (k === 'strokes') n.strokes = paints(v)
-    else if (k === 'fillStyle') await n.setFillStyleIdAsync((await localStyle('paint', v)).id)
+    else if (k === 'image') {
+      // kit has already read the file or URL and sends the bytes as base64.
+      const image = figma.createImage(figma.base64Decode(v.data))
+      n.fills = [{ type: 'IMAGE', imageHash: image.hash, scaleMode: v.scaleMode || 'FILL' }]
+    } else if (k === 'fillStyle') await n.setFillStyleIdAsync((await localStyle('paint', v)).id)
     else if (k === 'strokeStyle') await n.setStrokeStyleIdAsync((await localStyle('paint', v)).id)
     else if (k === 'effectStyle') await n.setEffectStyleIdAsync((await localStyle('effect', v)).id)
     else if (k === 'textStyle') {
@@ -101,8 +147,11 @@ async function apply(n, props) {
     } else if (k === 'componentProperties') n.setProperties(v)
     else if (k === 'parent') (await nodeById(String(v))).appendChild(n)
     else if (k === 'index') n.parent.insertChild(v, n)
+    else if (k === 'textRanges' || k === 'component' || k === 'select') continue
     else throw new Error(`unknown property "${k}"`)
   }
+  // Ranges after the loop, so they apply to the final text whatever the key order.
+  if (props.textRanges) await applyRanges(n, props.textRanges)
   // Turning on auto layout makes a frame hug its content, which would undo an
   // explicit width or height. A size given without its own sizing mode stays fixed.
   if ('layoutMode' in n && n.layoutMode !== 'NONE') {
@@ -112,10 +161,27 @@ async function apply(n, props) {
     if (h) n.layoutSizingVertical = 'FIXED'
     if (w || h) n.resize(w ? props.width : n.width, h ? props.height : n.height)
   }
+  if (props.component) {
+    if (n.type === 'COMPONENT') throw new Error(`${n.id} is already a component`)
+    n = figma.createComponentFromNode(n)
+  }
+  if (props.select) toSelect.push(n)
+  return n
+}
+
+/**
+ * A node created with auto layout hugs its content on any axis the props did
+ * not size, as in the editor. Without this it keeps Figma's 100×100 default.
+ */
+function hugUnsized(n, props) {
+  if (!('layoutMode' in n) || n.layoutMode === 'NONE') return
+  if (!('width' in props) && !('layoutSizingHorizontal' in props)) n.layoutSizingHorizontal = 'HUG'
+  if (!('height' in props) && !('layoutSizingVertical' in props)) n.layoutSizingVertical = 'HUG'
 }
 
 async function make(spec) {
   if (spec.type === 'FRAME') return figma.createFrame()
+  if (spec.type === 'COMPONENT') return figma.createComponent()
   if (spec.type === 'SECTION') return figma.createSection()
   if (spec.type === 'RECTANGLE') return figma.createRectangle()
   if (spec.type === 'ELLIPSE') return figma.createEllipse()
@@ -133,7 +199,21 @@ async function make(spec) {
   throw new Error(`cannot create ${spec.type}`)
 }
 
-/** Runs each item, collecting per-item errors, and makes the whole call one undo step. */
+// Errors thrown by the host API may come from another realm, where `instanceof Error` is false.
+const message = (error) => (error && typeof error.message === 'string' ? error.message : String(error))
+
+/** Ends a call that changed the document: one undo step, then select and show what was asked for. */
+function finish() {
+  const selected = toSelect.filter((n) => !n.removed)
+  toSelect = []
+  if (selected.length > 0) {
+    figma.currentPage.selection = selected
+    figma.viewport.scrollAndZoomIntoView(selected)
+  }
+  figma.commitUndo()
+}
+
+/** Runs each item, collecting per-item errors. */
 async function each(items, label, fn) {
   const changed = []
   const errors = []
@@ -141,53 +221,97 @@ async function each(items, label, fn) {
     try {
       changed.push(await fn(item))
     } catch (error) {
-      errors.push(`${label(item)}: ${error instanceof Error ? error.message : String(error)}`)
+      errors.push(`${label(item)}: ${message(error)}`)
     }
   }
-  figma.commitUndo()
+  finish()
   return { changed, errors }
+}
+
+/** A variable value as text: hex for colors, the variable name for aliases. */
+function valueText(value, names) {
+  if (value && typeof value === 'object' && value.type === 'VARIABLE_ALIAS') return `→ ${names.get(value.id) || value.id}`
+  if (value && typeof value === 'object' && 'r' in value) {
+    const ch = (x) => Math.round(x * 255).toString(16).padStart(2, '0').toUpperCase()
+    return `#${ch(value.r)}${ch(value.g)}${ch(value.b)}${value.a !== undefined && value.a < 0.995 ? ch(value.a) : ''}`
+  }
+  return JSON.stringify(value)
 }
 
 const methods = {
   async info() {
+    const selection = figma.currentPage.selection
     return {
       fileKey: figma.fileKey ?? null,
       fileName: figma.root.name,
       page: { id: figma.currentPage.id, name: figma.currentPage.name },
       user: figma.currentUser ? figma.currentUser.name : null,
-      selection: figma.currentPage.selection.length,
+      selection: selection.length,
+      selected: selection.slice(0, SELECTION_LIMIT).map((n) => ({
+        ...summary(n),
+        width: 'width' in n ? Math.round(n.width) : undefined,
+        height: 'height' in n ? Math.round(n.height) : undefined,
+      })),
       pluginVersion: VERSION,
       protocol: PROTOCOL,
     }
   },
   props: ({ edits }) =>
-    each(edits, (e) => e.id, async (e) => {
-      const n = await nodeById(e.id)
-      await apply(n, e.props)
-      return summary(n)
-    }),
+    each(edits, (e) => e.id, async (e) => summary(await apply(await nodeById(e.id), e.props))),
   async create({ parent, nodes }) {
     const target = parent ? await nodeById(parent) : figma.currentPage
     const changed = []
     const errors = []
     // A spec may carry `children`, built inside it, so a whole tree is one call and one undo step.
     const build = async (spec, into, depth) => {
+      if (spec.type === 'COMPONENT_SET') return buildSet(spec, into, depth)
       let n
       try {
         n = await make(spec)
         into.appendChild(n)
-        await apply(n, spec.props || {})
+        n = await apply(n, spec.props || {})
+        hugUnsized(n, spec.props || {})
       } catch (error) {
-        if (n) n.remove()
+        if (n && !n.removed) n.remove()
         const name = spec.props && spec.props.name ? ` "${spec.props.name}"` : ''
-        errors.push(`${spec.type}${name}: ${error instanceof Error ? error.message : String(error)}`)
-        return
+        errors.push(`${spec.type}${name}: ${message(error)}`)
+        return undefined
       }
-      changed.push({ ...summary(n), depth })
+      const entry = { ...summary(n), depth }
+      changed.push(entry)
       for (const child of spec.children || []) await build(child, n, depth + 1)
+      return entry
+    }
+    // Variants are built as components first, then combined; the set is listed before them.
+    const buildSet = async (spec, into, depth) => {
+      const at = changed.length
+      const parts = []
+      for (const child of spec.children || []) {
+        if (child.type !== 'COMPONENT') {
+          errors.push(`COMPONENT_SET: children must be COMPONENT, got ${child.type}`)
+          continue
+        }
+        const entry = await build(child, into, depth + 1)
+        if (entry) parts.push(await nodeById(entry.id))
+      }
+      if (parts.length === 0) {
+        errors.push('COMPONENT_SET: no variants were created')
+        return undefined
+      }
+      try {
+        const set = figma.combineAsVariants(parts, into)
+        await apply(set, spec.props || {})
+        hugUnsized(set, spec.props || {})
+        const entry = { ...summary(set), depth }
+        changed.splice(at, 0, entry)
+        return entry
+      } catch (error) {
+        errors.push(`COMPONENT_SET: ${message(error)}`)
+        return undefined
+      }
     }
     for (const spec of nodes) await build(spec, target, 0)
-    figma.commitUndo()
+    finish()
     return { changed, errors }
   },
   delete: ({ ids }) =>
@@ -197,6 +321,18 @@ const methods = {
       n.remove()
       return s
     }),
+  async variables() {
+    const collections = await figma.variables.getLocalVariableCollectionsAsync()
+    const variables = await figma.variables.getLocalVariablesAsync()
+    const names = new Map(variables.map((v) => [v.id, v.name]))
+    return collections.map((c) => ({
+      name: c.name,
+      modes: c.modes.map((m) => m.name),
+      variables: variables
+        .filter((v) => v.variableCollectionId === c.id)
+        .map((v) => ({ name: v.name, type: v.resolvedType, values: c.modes.map((m) => valueText(v.valuesByMode[m.modeId], names)) })),
+    }))
+  },
   async exec({ code }) {
     const run = new Function('figma', `return (async () => {\n${code}\n})()`)
     const value = await run(figma)
@@ -222,6 +358,7 @@ figma.ui.onmessage = async (msg) => {
     const result = await handler(params || {})
     figma.ui.postMessage({ type: 'response', port, id, result })
   } catch (error) {
-    figma.ui.postMessage({ type: 'response', port, id, error: error instanceof Error ? error.message : String(error) })
+    toSelect = []
+    figma.ui.postMessage({ type: 'response', port, id, error: message(error) })
   }
 }

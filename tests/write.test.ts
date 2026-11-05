@@ -1,6 +1,11 @@
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Bridge } from '../src/bridge/bridge.js'
+import { readBridge } from '../src/tools/read/bridge.js'
 import { readRender } from '../src/tools/read/render.js'
+import { readStyles } from '../src/tools/read/structure.js'
 import { readFrameText } from '../src/tools/read/text.js'
 import { writeComment } from '../src/tools/write/comment.js'
 import { deleteNodes, execRun, writeCreate, writeProps } from '../src/tools/write/edit.js'
@@ -16,7 +21,7 @@ afterEach(async () => {
 })
 
 /** A plugin in file `fileName`/`fileKey` that records requests and answers like the real one; `protocol: null` plays an old plugin. */
-async function setup(fileKey: string | null, fileName = 'Sample App', protocol: number | null = 2) {
+async function setup(fileKey: string | null, fileName = 'Sample App', protocol: number | null = 3) {
   const bridge = new Bridge()
   bridges.push(bridge)
   await bridge.start(PORTS)
@@ -27,7 +32,9 @@ async function setup(fileKey: string | null, fileName = 'Sample App', protocol: 
     const { id, method, params } = JSON.parse(String(event.data))
     requests.push({ method, params })
     const reply = (result: unknown) => ws.send(JSON.stringify({ id, result }))
-    if (method === 'info') reply({ fileKey, fileName, page: { id: '0:1', name: 'WebApp' }, user: 'Ada', selection: 0, pluginVersion: '0.1.0', protocol: protocol ?? undefined })
+    const selected = [{ id: '2:5', type: 'FRAME', name: 'Card', width: 400, height: 300 }]
+    if (method === 'info') reply({ fileKey, fileName, page: { id: '0:1', name: 'WebApp' }, user: 'Ada', selection: 3, selected, pluginVersion: '0.1.0', protocol: protocol ?? undefined })
+    else if (method === 'variables') reply([{ name: 'Theme', modes: ['Light', 'Dark'], variables: [{ name: 'brand', type: 'COLOR', values: ['#73FB9F', '#31D8F5'] }] }])
     else if (method === 'props') reply({ changed: [{ id: '2:3', type: 'TEXT', name: 'Società' }], errors: ['9:9: no node 9:9'] })
     else if (method === 'create') reply({ changed: [{ id: '5:1', type: 'FRAME', name: 'Card', depth: 0 }, { id: '5:2', type: 'TEXT', name: 'Title', depth: 1 }], errors: [] })
     else if (method === 'delete') reply({ changed: [], errors: ['9:9: no node 9:9'] })
@@ -93,7 +100,7 @@ describe('write tools', () => {
   it('refuse an outdated plugin and say how to update it', async () => {
     const { ctx, requests } = await setup(KEY, 'Sample App', null)
     const out = await writeProps.handler({ file: KEY, edits: [{ id: '2:3', props: { text: 'x' } }] }, ctx)
-    expect(textOf(out)).toContain('is outdated (protocol 1, kit needs 2). Run `kit plugin`')
+    expect(textOf(out)).toContain('is outdated (protocol 1, kit needs 3). Run `kit plugin`')
     expect(requests.map((r) => r.method)).not.toContain('props')
   })
 
@@ -135,5 +142,44 @@ describe('write_comment', () => {
     const out = await writeComment.handler({ file: KEY, message: 'x', node: '99:9' }, ctx)
     expect(out.isError).toBe(true)
     expect(ctx.http.calls.some((c) => c.startsWith('POST'))).toBe(false)
+  })
+})
+
+describe('images', () => {
+  it('reads a local image and sends its bytes, since the plugin cannot read files', async () => {
+    const { ctx, requests } = await setup(KEY)
+    const dir = await mkdtemp(join(tmpdir(), 'kit-img-'))
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7])
+    await writeFile(join(dir, 'logo.png'), png)
+    await writeProps.handler({ file: KEY, edits: [{ id: '2:3', props: { image: { src: join(dir, 'logo.png'), scaleMode: 'FIT' } } }] }, ctx)
+    expect(requests.at(-1)).toEqual({ method: 'props', params: { edits: [{ id: '2:3', props: { image: { data: png.toString('base64'), scaleMode: 'FIT' } } }] } })
+  })
+
+  it('refuses a file that is not an image before sending anything', async () => {
+    const { ctx, requests } = await setup(KEY)
+    const dir = await mkdtemp(join(tmpdir(), 'kit-img-'))
+    await writeFile(join(dir, 'notes.txt'), 'hello')
+    const out = await writeCreate.handler({ file: KEY, nodes: [{ type: 'RECTANGLE', props: { image: join(dir, 'notes.txt') } }] }, ctx)
+    expect(textOf(out)).toBe(`Not sent: ${join(dir, 'notes.txt')} is not a PNG, JPEG or GIF`)
+    expect(requests.map((r) => r.method)).not.toContain('create')
+  })
+})
+
+describe('selection and variables', () => {
+  it('read_bridge lists the selected nodes and how many more there are', async () => {
+    const { ctx } = await setup(KEY)
+    const out = textOf(await readBridge.handler({}, ctx))
+    expect(out).toContain('  · selected 2:5 FRAME "Card" 400×300\n  · (+2 more selected)')
+  })
+
+  it('read_styles includes variables when the plugin runs in the file', async () => {
+    const { ctx } = await setup(KEY)
+    const out = textOf(await readStyles.handler({ file: KEY }, ctx))
+    expect(out).toContain('VARIABLES "Theme" modes: Light | Dark\n  COLOR "brand" #73FB9F | #31D8F5')
+  })
+
+  it('read_styles says how to get variables when no plugin runs', async () => {
+    const out = textOf(await readStyles.handler({ file: KEY }, await context()))
+    expect(out).toContain('Variables: not read (run the kit bridge plugin in this file to include them).')
   })
 })
