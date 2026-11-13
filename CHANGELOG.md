@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0 (2026-11-13)
+
+- Browser sign-in with your own Figma OAuth app (`FIGMA_CLIENT_ID`,
+  `FIGMA_CLIENT_SECRET`): `auth_login` opens Figma's sign-in page and waits
+  for the loopback callback on `127.0.0.1:7390` (PKCE). The tokens are kept
+  in `~/.kit/auth.json`, shared by every kit session, refreshed a day before
+  they expire (halfway, for short-lived ones) and after Figma refuses them.
+  When the sign-in can't be renewed, tools ask for `auth_login` again.
+  `FIGMA_TOKEN` keeps working.
+- New `auth_` tool tier for kit's own sign-in.
+
 ## 1.0.0 (2026-11-05)
 
 - Read tools: `read_outline`, `read_frame_text`, `read_search`,
