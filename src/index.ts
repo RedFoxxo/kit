@@ -6,9 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Bridge } from './bridge/bridge.js'
 import { ConfigError, loadConfig } from './config.js'
+import { type Auth, OAuth, tokenAuth } from './figma/auth.js'
 import { createHttp } from './figma/http.js'
 import { FileStore } from './figma/store.js'
 import { createServer } from './server.js'
+import { authLogin } from './tools/auth.js'
+import { allTools } from './tools/index.js'
 
 /**
  * `kit plugin`: copies the Figma plugin to a fixed folder (~/.kit/plugin), so
@@ -35,11 +38,19 @@ async function serve(): Promise<void> {
     }
     throw error
   }
-  const http = createHttp(config)
+  const { credentials } = config
+  let oauth: OAuth | undefined
+  let auth: Auth
+  if (credentials.kind === 'oauth') auth = oauth = new OAuth({ ...credentials, file: config.authFile, apiBase: config.apiBase })
+  else auth = tokenAuth(credentials.token)
+  const http = createHttp({ auth, apiBase: config.apiBase })
   const bridge = new Bridge()
   await bridge.start()
   process.stderr.write(bridge.port ? `kit: bridge on port ${bridge.port}\n` : `kit: bridge off: ${bridge.problem}\n`)
-  const server = createServer({ http, files: new FileStore(http, config.cacheDir), bridge })
+  const server = createServer(
+    { http, files: new FileStore(http, config.cacheDir), bridge, ...(oauth ? { oauth } : {}) },
+    oauth ? [...allTools(), authLogin] : allTools(),
+  )
   await server.connect(new StdioServerTransport())
   process.stderr.write('kit: ready on stdio\n')
 }

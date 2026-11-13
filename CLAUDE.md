@@ -6,7 +6,8 @@ Guidance for working in this repository.
 
 **kit** is an MCP server for Figma that keeps the assistant's context small.
 It runs on the user's machine (stdio), reads files through Figma's REST API
-with a personal access token, and edits them through the "kit bridge" Figma
+with a browser sign-in (the user's own OAuth app) or a personal access token,
+and edits them through the "kit bridge" Figma
 plugin (`plugin/`) connected over a loopback WebSocket, because the REST API
 cannot change nodes.
 
@@ -41,8 +42,21 @@ Before every commit run `npm run typecheck`, `npm test` and `npm run build`.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `FIGMA_TOKEN` | yes | Personal access token. **Never** log or return it (`http.ts` redacts it from errors) |
+| `FIGMA_CLIENT_ID`, `FIGMA_CLIENT_SECRET` | one way | The user's Figma OAuth app: browser sign-in with `auth_login`, tokens in `~/.kit/auth.json` (mode 600). Wins over `FIGMA_TOKEN`. **Never** log or return the secret or the tokens |
+| `FIGMA_TOKEN` | other way | Personal access token. **Never** log or return it (`http.ts` redacts it from errors) |
 | `KIT_CACHE_DIR` | no | Cache folder, default `~/.kit/cache` |
+
+## Sign-in rules
+
+- Figma requires the client secret on token exchange and refresh, so kit
+  never ships one: the user brings their own app.
+- The callback listens on `127.0.0.1:7390` (`CALLBACK_PORT`), outside the
+  bridge's 7380–7389; the app's redirect URL must match it exactly.
+- Figma keeps one access token per user and app, and a refresh kills the old
+  one. Several kit sessions share `auth.json`: before refreshing, and when
+  Figma refuses a token, re-read the file first.
+- A 403 also means "this token can't open that file". Refresh only when
+  `/v1/me` refuses the token too.
 
 ## Architecture
 
@@ -52,7 +66,8 @@ src/
   server.ts         tool registration; tier prefix check and MCP annotations
   config.ts         env loading
   figma/
-    http.ts         the request functions: token header, redaction, Result
+    auth.ts         tokenAuth (FIGMA_TOKEN) and OAuth: browser sign-in with PKCE and a loopback callback, shared token file, refresh
+    http.ts         the request functions: auth header, one retry after a refresh, redaction, Result
     refs.ts         file keys and node ids from URLs
     store.ts        FileStore (version check, disk cache) and FigmaFile (parent index, screen of a node)
     types.ts        the subset of Figma's REST shapes kit reads
@@ -61,6 +76,7 @@ src/
     nodes.ts        colors, sizes, text in reading order, accent folding
   tools/
     types.ts, respond.ts, index.ts
+    auth.ts         auth_login, registered only with an OAuth app
     plugin.ts       pick the plugin running in the named file (refuses an outdated one), run a change, report it
     read/           read_outline, read_frame_text, read_search, read_comments,
                     read_structure, read_styles (variables through the plugin), read_render (live through the plugin when it runs in the file), read_bridge (with the selection)
@@ -97,7 +113,8 @@ plugin/             the Figma plugin, plain JS: manifest.json, code.js (Plugin A
   nodes can take over a minute. Requests time out after 120 s, but the work
   may still finish; the timeout message says to check the file before retrying.
 
-Tool names carry their tier as prefix (`read_`, `write_`, `delete_`, `exec_`).
+Tool names carry their tier as prefix (`read_`, `write_`, `delete_`, `exec_`,
+`auth_` for kit's own sign-in, which changes no design).
 Clients build approval rules on it, so a tool's prefix must match what it does.
 
 A "screen" is a node directly on a page or in a section that is not a section
@@ -108,6 +125,9 @@ itself (`FigmaFile.frameOf`).
 `tests/fixture.ts` builds a small file and a fake HTTP layer that records
 calls. Bridge and write tests start a real bridge on ports 47380+ and connect
 a fake plugin with Node's `WebSocket`. Plugin tests (`tests/plugin.test.ts`)
-run `plugin/code.js` on `tests/fake-figma.ts`. Tests check behavior a user
+run `plugin/code.js` on `tests/fake-figma.ts`. Sign-in tests
+(`tests/auth.test.ts`) run `OAuth` against a fake Figma `fetch` with a
+temporary `auth.json` and a real loopback callback, one port per test from
+47395 (a started sign-in holds its port). Tests check behavior a user
 would notice: what an answer contains, what is left out, paging, which plugin
 gets a change, what ends up in the document, and how many requests are made.

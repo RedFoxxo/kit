@@ -1,4 +1,5 @@
 import { VERSION } from '../version.js'
+import type { Auth } from './auth.js'
 
 export type Result<T> =
   | { ok: true; data: T }
@@ -15,9 +16,9 @@ export interface Http {
 
 type Fetch = typeof fetch
 
-export function createHttp(opts: { token: string; apiBase: string }, fetchImpl: Fetch = fetch): Http {
-  const redact = (text: string): string => text.split(opts.token).join('***')
-  const headers = { 'X-Figma-Token': opts.token, 'User-Agent': `kit/${VERSION}` }
+export function createHttp(opts: { auth: Auth; apiBase: string }, fetchImpl: Fetch = fetch): Http {
+  const { auth } = opts
+  const redact = (text: string): string => auth.secrets().reduce((out, secret) => out.split(secret).join('***'), text)
 
   async function failure(response: Response): Promise<{ ok: false; status: number; message: string; retryAfter?: number }> {
     const body = redact(await response.text().catch(() => ''))
@@ -32,30 +33,46 @@ export function createHttp(opts: { token: string; apiBase: string }, fetchImpl: 
     return {
       ok: false,
       status: response.status,
-      message: hint(response.status, message),
+      message: hint(response.status, message, auth.label),
       ...(Number.isFinite(retry) && retry > 0 ? { retryAfter: retry } : {}),
     }
   }
 
-  async function call<T>(path: string, init: RequestInit): Promise<Result<T>> {
+  /** Sends an authenticated request; when Figma refuses the credential and a newer one is ready, sends it once more. */
+  async function call<T>(path: string, init: RequestInit & { headers?: Record<string, string> }, signal?: AbortSignal): Promise<Result<T>> {
     try {
-      const response = await fetchImpl(`${opts.apiBase}${path}`, init)
-      if (!response.ok) return failure(response)
-      return { ok: true, data: (await response.json()) as T }
+      for (let attempt = 0; ; attempt++) {
+        const credential = await auth.header(signal)
+        if (!credential.ok) return { ok: false, status: 401, message: credential.message }
+        const response = await fetchImpl(`${opts.apiBase}${path}`, {
+          ...init,
+          headers: { ...init.headers, [credential.name]: credential.value, 'User-Agent': `kit/${VERSION}` },
+          ...(signal ? { signal } : {}),
+        })
+        if ((response.status === 401 || response.status === 403) && attempt === 0) {
+          if (await auth.rejected(credential.value, signal)) {
+            await response.body?.cancel()
+            continue
+          }
+          // The credential could not be renewed: say what to do instead of Figma's bare refusal.
+          const after = await auth.header(signal)
+          if (!after.ok) {
+            await response.body?.cancel()
+            return { ok: false, status: 401, message: after.message }
+          }
+        }
+        if (!response.ok) return failure(response)
+        return { ok: true, data: (await response.json()) as T }
+      }
     } catch (error) {
       return { ok: false, status: 0, message: redact(error instanceof Error ? error.message : String(error)) }
     }
   }
 
   return {
-    json: <T>(path: string, signal?: AbortSignal) => call<T>(path, { headers, ...(signal ? { signal } : {}) }),
+    json: <T>(path: string, signal?: AbortSignal) => call<T>(path, {}, signal),
     post: <T>(path: string, body: unknown, signal?: AbortSignal) =>
-      call<T>(path, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        ...(signal ? { signal } : {}),
-      }),
+      call<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, signal),
     async bytes(url: string, signal?: AbortSignal) {
       try {
         const response = await fetchImpl(url, signal ? { signal } : {})
@@ -69,9 +86,9 @@ export function createHttp(opts: { token: string; apiBase: string }, fetchImpl: 
   }
 }
 
-function hint(status: number, message: string): string {
-  if (status === 403) return `${message} (check that FIGMA_TOKEN is valid, has the needed scopes and can open this file)`
-  if (status === 404) return `${message} (wrong file key or node id, or the token cannot see the file)`
+function hint(status: number, message: string, credential: string): string {
+  if (status === 403) return `${message} (check that ${credential} is valid, has the needed scopes and can open this file)`
+  if (status === 404) return `${message} (wrong file key or node id, or ${credential} cannot see the file)`
   if (status === 429) return `${message} (Figma rate limit; wait before retrying)`
   return message
 }

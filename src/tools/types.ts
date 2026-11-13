@@ -1,17 +1,21 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { z } from 'zod'
 import type { Bridge } from '../bridge/bridge.js'
+import type { OAuth } from '../figma/auth.js'
 import type { Http } from '../figma/http.js'
 import type { FileStore } from '../figma/store.js'
 
-export type Tier = 'read' | 'write' | 'delete' | 'exec'
+/** `auth` changes no design, only kit's own sign-in to Figma. */
+export type Tier = 'read' | 'write' | 'delete' | 'exec' | 'auth'
 
-export const TIERS: readonly Tier[] = ['read', 'write', 'delete', 'exec']
+export const TIERS: readonly Tier[] = ['read', 'write', 'delete', 'exec', 'auth']
 
 export interface ToolContext {
   http: Http
   files: FileStore
   bridge: Bridge
+  /** Set when kit signs in with an OAuth app instead of FIGMA_TOKEN. */
+  oauth?: OAuth
 }
 
 export interface ToolDef<S extends z.ZodRawShape = z.ZodRawShape> {

@@ -9,7 +9,7 @@ export function createServer(ctx: ToolContext, tools: AnyToolDef[] = allTools())
 
   for (const tool of tools) {
     const tier = tierOf(tool.name)
-    if (!tier) throw new Error(`Tool "${tool.name}" has no tier prefix (read_/write_/delete_/exec_)`)
+    if (!tier) throw new Error(`Tool "${tool.name}" has no tier prefix (read_/write_/delete_/exec_/auth_)`)
     if (seen.has(tool.name)) throw new Error(`Tool "${tool.name}" is registered twice`)
     seen.add(tool.name)
 
@@ -18,7 +18,7 @@ export function createServer(ctx: ToolContext, tools: AnyToolDef[] = allTools())
       {
         description: tool.description,
         inputSchema: tool.input,
-        annotations: { readOnlyHint: tier === 'read', destructiveHint: tier !== 'read', openWorldHint: true },
+        annotations: { readOnlyHint: tier === 'read', destructiveHint: tier !== 'read' && tier !== 'auth', openWorldHint: true },
       },
       async (args: Record<string, unknown>, extra: { signal?: AbortSignal }) => tool.handler(args, ctx, extra?.signal),
     )

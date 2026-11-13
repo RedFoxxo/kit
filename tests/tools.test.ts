@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { authLogin } from '../src/tools/auth.js'
 import { allTools } from '../src/tools/index.js'
 import { readComments } from '../src/tools/read/comments.js'
 import { readOutline } from '../src/tools/read/outline.js'
@@ -105,7 +106,8 @@ describe('read_render', () => {
 
 describe('tool set', () => {
   it('has a tier prefix on every tool and stays small in the prompt', () => {
-    const tools = allTools()
+    // With an OAuth app kit also registers auth_login.
+    const tools = [...allTools(), authLogin]
     for (const t of tools) expect(tierOf(t.name), t.name).toBeDefined()
     const prompt = tools.map((t) => t.name + t.description + JSON.stringify(z.toJSONSchema(z.object(t.input)))).join('')
     // ~3K tokens: every request carries the tool list.
