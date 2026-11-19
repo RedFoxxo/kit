@@ -1,6 +1,36 @@
 # Changelog
 
-## 1.1.0 (2026-11-13)
+Versions follow [Semantic Versioning](https://semver.org/). The version lives in
+`package.json` and `src/version.ts` (a test keeps them equal) and is reported to
+MCP clients in the server handshake. The kit bridge plugin has its own
+`PROTOCOL` number (`src/bridge/bridge.ts`, `plugin/code.js`).
+
+## 1.2.0 — 2026-11-19
+
+- **Run `kit plugin` again after updating** (`npx -y @redfoxxo/kit@1 plugin`),
+  then close and relaunch kit bridge in Figma. The plugin now proves itself
+  with a key that `kit plugin` writes into its copy (kept in
+  `~/.kit/bridge.key`, readable by you only). Before, any website could open
+  a hidden sandboxed frame, connect to kit as if it were the plugin, receive
+  the edits and images kit sends, and put its own text into tool answers.
+  `read_bridge` says when kit refused a plugin without the key. The bridge
+  also refuses requests for host names other than `localhost`, `127.0.0.1`
+  and `[::1]` (DNS rebinding), and messages sent in endless fragments.
+- Images from a URL are capped at 20 MB while downloading, and renders at
+  32 MB, instead of being read whole first. A failed image download reports
+  only its status, not the page it returned.
+- A refresh that Figma rate-limits (429) or times out (408) no longer deletes
+  the sign-in; kit keeps the token and tries again later.
+- The sign-in exchanges Figma's code once when the browser opens the callback
+  twice (a reload), instead of reporting a failed sign-in.
+- File snapshots and renders are cached in folders only you can open.
+- The tool list is about 1,900 bytes (~470 tokens) smaller: no JSON Schema
+  draft URL, no safe-integer bounds on integers, shorter `file` and `offset`
+  descriptions. Tools, parameters and answers are unchanged.
+- Dependencies: `zod` 4.6.7 (fixes GHSA-mrhx-c7xc-m3w5),
+  `@modelcontextprotocol/sdk` 1.32.2.
+
+## 1.1.0 — 2026-11-13
 
 - Browser sign-in with your own Figma OAuth app (`FIGMA_CLIENT_ID`,
   `FIGMA_CLIENT_SECRET`): `auth_login` opens Figma's sign-in page and waits
@@ -11,7 +41,7 @@
   `FIGMA_TOKEN` keeps working.
 - New `auth_` tool tier for kit's own sign-in.
 
-## 1.0.0 (2026-11-05)
+## 1.0.0 — 2026-11-05
 
 - Read tools: `read_outline`, `read_frame_text`, `read_search`,
   `read_comments`, `read_structure`, `read_styles`, `read_render`.
