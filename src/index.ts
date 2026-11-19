@@ -1,11 +1,9 @@
 #!/usr/bin/env node
-import { copyFile, mkdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Bridge } from './bridge/bridge.js'
-import { ConfigError, loadConfig } from './config.js'
+import { bridgeKey, installPlugin } from './bridge/setup.js'
+import { BRIDGE_KEY_FILE, ConfigError, KIT_DIR, loadConfig } from './config.js'
 import { type Auth, OAuth, tokenAuth } from './figma/auth.js'
 import { createHttp } from './figma/http.js'
 import { FileStore } from './figma/store.js'
@@ -18,11 +16,9 @@ import { allTools } from './tools/index.js'
  * it is imported in Figma once and survives npx cache changes. Prints the
  * manifest path on stdout.
  */
-async function installPlugin(): Promise<void> {
-  const source = fileURLToPath(new URL('../plugin/', import.meta.url))
-  const target = join(homedir(), '.kit', 'plugin')
-  await mkdir(target, { recursive: true })
-  for (const name of ['manifest.json', 'code.js', 'ui.html']) await copyFile(join(source, name), join(target, name))
+async function plugin(): Promise<void> {
+  const target = join(KIT_DIR, 'plugin')
+  await installPlugin(target, await bridgeKey(BRIDGE_KEY_FILE))
   process.stderr.write('In Figma desktop: Plugins → Development → Import plugin from manifest…, then pick:\n')
   process.stdout.write(`${join(target, 'manifest.json')}\n`)
 }
@@ -44,8 +40,15 @@ async function serve(): Promise<void> {
   if (credentials.kind === 'oauth') auth = oauth = new OAuth({ ...credentials, file: config.authFile, apiBase: config.apiBase })
   else auth = tokenAuth(credentials.token)
   const http = createHttp({ auth, apiBase: config.apiBase })
-  const bridge = new Bridge()
-  await bridge.start()
+  let bridge: Bridge
+  try {
+    bridge = new Bridge(await bridgeKey(BRIDGE_KEY_FILE))
+    await bridge.start()
+  } catch (error) {
+    // Reading and comments work without the bridge.
+    bridge = new Bridge('')
+    bridge.problem = `cannot read or create ${BRIDGE_KEY_FILE}: ${error instanceof Error ? error.message : String(error)}`
+  }
   process.stderr.write(bridge.port ? `kit: bridge on port ${bridge.port}\n` : `kit: bridge off: ${bridge.problem}\n`)
   const server = createServer(
     { http, files: new FileStore(http, config.cacheDir), bridge, ...(oauth ? { oauth } : {}) },
@@ -57,7 +60,7 @@ async function serve(): Promise<void> {
 
 async function main(): Promise<void> {
   const [command] = process.argv.slice(2)
-  if (command === 'plugin') return installPlugin()
+  if (command === 'plugin') return plugin()
   if (command === undefined) return serve()
   process.stderr.write(`kit: unknown command "${command}". Usage: kit (MCP server on stdio) | kit plugin\n`)
   process.exit(1)

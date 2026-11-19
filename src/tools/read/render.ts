@@ -15,7 +15,7 @@ export function imageTokens(width: number, height: number): number {
 export const readRender = defineTool({
   name: 'read_render',
   description:
-    'Picture of one node. Costly: an image stays in context for the rest of the conversation (~1.4K tokens at 1024px). Use only for layout questions text cannot answer; render the smallest child that shows it, not whole screens. Taken live from Figma when the kit bridge plugin runs in the file (shows edits at once), else from the REST API.',
+    'Picture of one node. Costly: an image stays in context for the rest of the conversation (~1.4K tokens at 1024px). Use only for layout questions text cannot answer; render the smallest child that shows it, not whole screens. Live (edits show at once) when the kit bridge plugin runs in the file.',
   input: {
     file: fileArg,
     id: z.string().describe('Node id or node URL'),
@@ -68,7 +68,7 @@ export const readRender = defineTool({
       if (!download.ok) return failure(`Could not download the render of ${nodeId}`, download)
       const bytes = download.data.data
       data = bytes
-      await mkdir(dir, { recursive: true })
+      await mkdir(dir, { recursive: true, mode: 0o700 })
         .then(() => writeFile(path, bytes))
         .catch(() => undefined)
     }

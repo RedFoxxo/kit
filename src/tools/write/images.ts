@@ -16,7 +16,7 @@ function imageType(data: Buffer): string | undefined {
 
 async function load(src: string, http: Http, signal?: AbortSignal): Promise<Buffer> {
   if (/^https?:\/\//i.test(src)) {
-    const got = await http.bytes(src, signal)
+    const got = await http.bytes(src, signal, MAX_BYTES)
     if (!got.ok) throw new Error(`cannot download ${src}: ${got.message}`)
     return got.data.data
   }

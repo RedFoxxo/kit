@@ -114,7 +114,7 @@ export async function context(file: FileResponse = sampleFile(), extra: Record<s
     ...extra,
   })
   const dir = await mkdtemp(join(tmpdir(), 'kit-test-'))
-  return { http, files: new FileStore(http, dir), bridge: new Bridge(), dir }
+  return { http, files: new FileStore(http, dir), bridge: new Bridge('test-bridge-key'), dir }
 }
 
 export function textOf(result: { content: { type: string; text?: string }[] }): string {

@@ -18,8 +18,10 @@ company workflow.
 
 These are the reason kit exists. Every change must keep them:
 
-- **Few tools.** The tool list is sent with every request. `tests/tools.test.ts`
-  caps names, descriptions and schemas at 12,000 characters.
+- **Few tools.** The tool list is sent with every request. `server.ts` serves
+  it without schema noise (draft URL, safe-integer bounds, record keywords);
+  `tests/tools.test.ts` caps names, descriptions and schemas at 10,000
+  characters.
 - **Text first.** Answers are plain text lines, not JSON trees. A page is at
   most `PAGE_CHARS` (20,000) characters; longer answers end with a
   `[more: …; offset=N]` footer, never a cut in the middle of a line.
@@ -36,15 +38,15 @@ These are the reason kit exists. Every change must keep them:
 - No other runtime dependencies. Add a library only for a need the standard
   library cannot meet, and ask first. Versions are pinned exactly.
 
-Before every commit run `npm run typecheck`, `npm test` and `npm run build`.
+Commands, trying the plugin by hand and releasing: `DEVELOPMENT.md`.
 
 ## Configuration
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `FIGMA_CLIENT_ID`, `FIGMA_CLIENT_SECRET` | one way | The user's Figma OAuth app: browser sign-in with `auth_login`, tokens in `~/.kit/auth.json` (mode 600). Wins over `FIGMA_TOKEN`. **Never** log or return the secret or the tokens |
-| `FIGMA_TOKEN` | other way | Personal access token. **Never** log or return it (`http.ts` redacts it from errors) |
-| `KIT_CACHE_DIR` | no | Cache folder, default `~/.kit/cache` |
+Environment variables are listed in `README.md` (Setup). `FIGMA_TOKEN`,
+`FIGMA_CLIENT_SECRET` and the OAuth tokens must **never** be logged or
+returned: `Auth.secrets()` lists them and `http.ts`/`auth.ts` redact them from
+errors. Everything kit keeps lives in `KIT_DIR` (`~/.kit`): `auth.json` and
+`bridge.key` (mode 600), `plugin/`, and `cache/` (folders mode 700).
 
 ## Sign-in rules
 
@@ -57,14 +59,18 @@ Before every commit run `npm run typecheck`, `npm test` and `npm run build`.
   Figma refuses a token, re-read the file first.
 - A 403 also means "this token can't open that file". Refresh only when
   `/v1/me` refuses the token too.
+- A refused refresh (4xx other than 408/429) deletes `auth.json`; a busy or
+  failing Figma keeps it, and the token is used until it expires.
+- The callback accepts one answer per sign-in (`state` checked first);
+  repeated requests must not exchange the code again.
 
 ## Architecture
 
 ```
 src/
-  index.ts          bootstrap: `kit` (stdio server, starts the bridge) and `kit plugin` (copies plugin/ to ~/.kit/plugin)
-  server.ts         tool registration; tier prefix check and MCP annotations
-  config.ts         env loading
+  index.ts          bootstrap: `kit` (stdio server, starts the bridge) and `kit plugin` (copies plugin/ with the bridge key to ~/.kit/plugin)
+  server.ts         tool registration; tier prefix check, MCP annotations, the compact tools/list
+  config.ts         env loading, KIT_DIR and BRIDGE_KEY_FILE
   figma/
     auth.ts         tokenAuth (FIGMA_TOKEN) and OAuth: browser sign-in with PKCE and a loopback callback, shared token file, refresh
     http.ts         the request functions: auth header, one retry after a refresh, redaction, Result
@@ -83,8 +89,9 @@ src/
     write/          edit.ts: write_props, write_create (nested children, components, variant sets), delete_nodes, exec_run;
                     images.ts: reads image files and URLs into base64 for the plugin; comment.ts: write_comment (REST)
   bridge/
-    ws.ts           minimal RFC 6455 server: loopback only, origin "null" or none, text frames
-    bridge.ts       ports 7380–7389 (first free), connections, request/response by id with timeout
+    ws.ts           minimal RFC 6455 server: loopback only, loopback Host, origin "null" or none, `?key=` checked, text frames up to 64 MB
+    bridge.ts       ports 7380–7389 (first free), connections, request/response by id with timeout, count of refused handshakes
+    setup.ts        bridgeKey (~/.kit/bridge.key, created once) and installPlugin (writes the key into ui.html)
 plugin/             the Figma plugin, plain JS: manifest.json, code.js (Plugin API methods), ui.html (WebSocket)
 ```
 
@@ -103,6 +110,13 @@ plugin/             the Figma plugin, plain JS: manifest.json, code.js (Plugin A
   old plugin and tells the user to run `kit plugin` and relaunch it.
 - `PORTS` in `src/bridge/bridge.ts`, `PORTS` in `plugin/ui.html` and
   `devAllowedDomains` in `plugin/manifest.json` must list the same ports.
+- The plugin must send the key from `~/.kit/bridge.key`: origin "null" alone
+  does not identify it, since a sandboxed iframe on any website sends it too.
+  `plugin/ui.html` keeps the placeholder `const KEY = 'KIT_BRIDGE_KEY'`, which
+  `installPlugin` replaces; never commit a real key. The key authenticates
+  the plugin to kit only: whatever listens on the ports first receives it and
+  can drive the plugin, so a local process of another user is out of reach of
+  this check.
 - `plugin/code.js` runs inside Figma. `tests/fake-figma.ts` runs it in Node
   against a fake `figma` that keeps the rules kit depends on (fonts loaded
   before text changes, removed nodes, variants must be components); still try

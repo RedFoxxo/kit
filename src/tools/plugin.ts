@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { PROTOCOL, type Connection, type PluginInfo } from '../bridge/bridge.js'
+import { PROTOCOL, type Bridge, type Connection, type PluginInfo } from '../bridge/bridge.js'
 import { parseFileKey } from '../figma/refs.js'
 import { failure, lines } from './respond.js'
 import type { ToolContext } from './types.js'
@@ -9,6 +9,12 @@ export interface PluginChange {
   /** `depth` > 0 for nodes created inside another node of the same call. */
   changed: { id: string; type: string; name: string; depth?: number }[]
   errors: string[]
+}
+
+/** Why no plugin shows although one may run: kit refused it for a missing or wrong key. Empty when none was refused. */
+export function refusedNote(bridge: Bridge): string {
+  if (bridge.refused === 0) return ''
+  return ` ${bridge.refused} connection${bridge.refused === 1 ? '' : 's'} refused for a missing or wrong key: a plugin copy older than kit's key (or something posing as the plugin). Run \`kit plugin\`, then close and relaunch the plugin in Figma.`
 }
 
 /**
@@ -58,7 +64,7 @@ export async function pluginFor(
     ok: false,
     error: failure(
       open.length === 0
-        ? 'No plugin connected. Open the file in Figma desktop and run Plugins → Development → kit bridge.'
+        ? `No plugin connected. Open the file in Figma desktop and run Plugins → Development → kit bridge.${refusedNote(bridge)}`
         : `The kit bridge plugin is not running in file ${key}. Running in: ${list}. Run the plugin in that file.`,
     ),
   }

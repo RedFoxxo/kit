@@ -22,11 +22,11 @@ afterEach(async () => {
 
 /** A plugin in file `fileName`/`fileKey` that records requests and answers like the real one; `protocol: null` plays an old plugin. */
 async function setup(fileKey: string | null, fileName = 'Sample App', protocol: number | null = 3) {
-  const bridge = new Bridge()
+  const bridge = new Bridge('test-bridge-key')
   bridges.push(bridge)
   await bridge.start(PORTS)
   const requests: { method: string; params: unknown }[] = []
-  const ws = new WebSocket(`ws://localhost:${bridge.port}`)
+  const ws = new WebSocket(`ws://localhost:${bridge.port}/?key=test-bridge-key`)
   clients.push(ws)
   ws.onmessage = (event) => {
     const { id, method, params } = JSON.parse(String(event.data))

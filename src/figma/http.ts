@@ -10,8 +10,11 @@ export interface Http {
   json<T>(path: string, signal?: AbortSignal): Promise<Result<T>>
   /** POST JSON to a Figma API path and parse the JSON answer. */
   post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<Result<T>>
-  /** GET an absolute URL (rendered images) as bytes. Sends no token. */
-  bytes(url: string, signal?: AbortSignal): Promise<Result<{ data: Buffer; type: string }>>
+  /**
+   * GET an absolute URL (renders, images for the plugin) as bytes. Sends no
+   * token. Fails past `maxBytes` (default 32 MB) without holding the rest.
+   */
+  bytes(url: string, signal?: AbortSignal, maxBytes?: number): Promise<Result<{ data: Buffer; type: string }>>
 }
 
 type Fetch = typeof fetch
@@ -73,12 +76,29 @@ export function createHttp(opts: { auth: Auth; apiBase: string }, fetchImpl: Fet
     json: <T>(path: string, signal?: AbortSignal) => call<T>(path, {}, signal),
     post: <T>(path: string, body: unknown, signal?: AbortSignal) =>
       call<T>(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, signal),
-    async bytes(url: string, signal?: AbortSignal) {
+    async bytes(url: string, signal?: AbortSignal, maxBytes = 32 * 1024 * 1024) {
+      const tooBig = { ok: false, status: 0, message: `larger than ${Math.round(maxBytes / 1024 / 1024)} MB` } as const
       try {
         const response = await fetchImpl(url, signal ? { signal } : {})
-        if (!response.ok) return failure(response)
+        if (!response.ok) {
+          await response.body?.cancel()
+          // Any URL can be asked for: its body and a hint about the Figma credential have no place in the answer.
+          return { ok: false, status: response.status, message: `${response.status} ${response.statusText}`.trim() }
+        }
+        if (Number(response.headers.get('content-length')) > maxBytes) {
+          await response.body?.cancel()
+          return tooBig
+        }
+        const chunks: Uint8Array[] = []
+        let size = 0
+        // Leaving the loop early cancels the download.
+        for await (const chunk of response.body ?? []) {
+          size += chunk.length
+          if (size > maxBytes) return tooBig
+          chunks.push(chunk)
+        }
         const type = response.headers.get('content-type') ?? 'application/octet-stream'
-        return { ok: true, data: { data: Buffer.from(await response.arrayBuffer()), type } }
+        return { ok: true, data: { data: Buffer.concat(chunks), type } }
       } catch (error) {
         return { ok: false, status: 0, message: error instanceof Error ? error.message : String(error) }
       }

@@ -1,4 +1,5 @@
 import { PROTOCOL, type PluginInfo } from '../../bridge/bridge.js'
+import { refusedNote } from '../plugin.js'
 import { lines } from '../respond.js'
 import { defineTool } from '../types.js'
 
@@ -12,7 +13,7 @@ export const readBridge = defineTool({
     if (bridge.port === undefined) return lines([`Bridge not listening: ${bridge.problem ?? 'not started'}.`])
     const out = [`Bridge listening on port ${bridge.port}.`]
     if (bridge.connections.size === 0) {
-      out.push('No plugin connected. In Figma open the file, then Plugins → Development → kit bridge (import it once from the manifest kit prints with `kit plugin`).')
+      out.push(`No plugin connected. In Figma open the file, then Plugins → Development → kit bridge (import it once from the manifest kit prints with \`kit plugin\`).${refusedNote(bridge)}`)
       return lines(out)
     }
     for (const c of bridge.connections) {

@@ -24,8 +24,8 @@ export function failure(summary: string, error?: Extract<Result<unknown>, { ok: 
   return { content: [{ type: 'text', text: parts.join('\n') }], isError: true }
 }
 
-export const fileArg = z.string().describe('Figma file URL or file key')
-export const offsetArg = z.number().int().min(0).optional().describe('Line to start from, when a previous answer said [more: …]')
+export const fileArg = z.string().describe('Figma file URL or key')
+export const offsetArg = z.number().int().min(0).optional().describe('From a [more: …] footer')
 
 /** Loads the file named by a URL or key, or explains why it cannot. */
 export async function openFile(

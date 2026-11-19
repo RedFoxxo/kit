@@ -165,7 +165,8 @@ export class FileStore {
   private async writeDisk(key: string, raw: FileResponse): Promise<void> {
     try {
       const dir = this.dir(key)
-      await mkdir(dir, { recursive: true })
+      // Snapshots are the user's designs: no other account on the machine may read them.
+      await mkdir(dir, { recursive: true, mode: 0o700 })
       const path = this.snapshotPath(key, raw.version)
       for (const entry of await readdir(dir)) {
         if (entry.endsWith('.json') && join(dir, entry) !== path) await rm(join(dir, entry), { force: true })

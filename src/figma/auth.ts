@@ -181,9 +181,11 @@ export class OAuth implements Auth {
     })}`
 
     const { promise: done, resolve: finish } = Promise.withResolvers<string>()
+    /** Set once Figma's answer arrived: a reload or a second request must not exchange the code again. */
+    let received = false
     const server = createServer((req, res) => {
-      const query = new URL(req.url ?? '/', this.redirectUri)
-      if (query.pathname !== '/callback') {
+      const query = URL.parse(req.url ?? '/', this.redirectUri)
+      if (query?.pathname !== '/callback') {
         res.writeHead(404).end()
         return
       }
@@ -193,6 +195,11 @@ export class OAuth implements Auth {
         page(400, 'This sign-in link is out of date. Go back to your AI tool and ask it to sign in to Figma again.')
         return
       }
+      if (received) {
+        page(409, 'kit already received this sign-in. Go back to your AI tool.')
+        return
+      }
+      received = true
       const code = query.searchParams.get('code')
       if (!code) {
         page(400, 'Figma did not sign you in. Go back to your AI tool and try again.')
@@ -268,8 +275,8 @@ export class OAuth implements Auth {
         if (this.stored.accessToken !== stale) return true
         const answer = await this.tokenCall('/v1/oauth/refresh', { refresh_token: this.stored.refreshToken }, signal)
         if (!answer.ok) {
-          if (answer.status >= 400 && answer.status < 500) {
-            // The refresh token is dead: only a new sign-in helps.
+          // Refused, not just busy (408, 429): the refresh token is dead and only a new sign-in helps.
+          if (answer.status >= 400 && answer.status < 500 && answer.status !== 408 && answer.status !== 429) {
             await this.forget()
             this.expired = true
           }

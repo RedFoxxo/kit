@@ -7,6 +7,8 @@
     <script>
       // Keep in sync with PORTS in src/bridge/bridge.ts and the manifest.
       const PORTS = [7380, 7381, 7382, 7383, 7384, 7385, 7386, 7387, 7388, 7389]
+      // `kit plugin` writes the key from ~/.kit/bridge.key here; kit refuses connections without it.
+      const KEY = 'KIT_BRIDGE_KEY'
       const sockets = new Map()
       const status = document.getElementById('status')
 
@@ -19,7 +21,7 @@
         if (sockets.has(port)) return
         let ws
         try {
-          ws = new WebSocket(`ws://localhost:${port}`)
+          ws = new WebSocket(`ws://localhost:${port}/?key=${encodeURIComponent(KEY)}`)
         } catch {
           return
         }
@@ -52,9 +54,13 @@
         }
       }
 
-      const scan = () => PORTS.forEach(connect)
-      scan()
-      setInterval(scan, 3000)
+      if (KEY === 'KIT_BRIDGE_' + 'KEY') {
+        status.textContent = 'Not installed by kit: run `npx -y @redfoxxo/kit@1 plugin` and import the manifest it prints.'
+      } else {
+        const scan = () => PORTS.forEach(connect)
+        scan()
+        setInterval(scan, 3000)
+      }
     </script>
   </body>
 </html>

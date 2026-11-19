@@ -49,6 +49,12 @@ export class Connection {
     return promise
   }
 
+  /** Ends the connection; its pending calls fail. */
+  close(): void {
+    this.socket.close()
+    this.dropAll()
+  }
+
   dropAll(): void {
     for (const p of this.pending.values()) {
       clearTimeout(p.timer)
@@ -80,12 +86,17 @@ export class Bridge {
   port: number | undefined
   /** Why the bridge is not listening, when it is not. */
   problem: string | undefined
+  /** Connections refused for a missing or wrong key since start: a plugin installed before the key, or a page posing as one. */
+  refused = 0
   private server: { close(): Promise<void> } | undefined
+
+  /** `key`: the secret in ~/.kit/bridge.key, which `kit plugin` writes into the plugin (see setup.ts). */
+  constructor(private readonly key: string) {}
 
   async start(ports: readonly number[] = PORTS): Promise<void> {
     for (const port of ports) {
       try {
-        this.server = await listen(port, (socket) => this.accept(socket))
+        this.server = await listen(port, { key: this.key, onSocket: (socket) => this.accept(socket), onRefused: () => this.refused++ })
         this.port = port
         this.problem = undefined
         return
@@ -97,7 +108,7 @@ export class Bridge {
   }
 
   async stop(): Promise<void> {
-    for (const c of this.connections) c.dropAll()
+    for (const c of this.connections) c.close()
     await this.server?.close()
   }
 

@@ -1,5 +1,10 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { describe, expect, it } from 'vitest'
-import { z } from 'zod'
+import { createServer } from '../src/server.js'
+import { VERSION } from '../src/version.js'
 import { authLogin } from '../src/tools/auth.js'
 import { allTools } from '../src/tools/index.js'
 import { readComments } from '../src/tools/read/comments.js'
@@ -105,12 +110,27 @@ describe('read_render', () => {
 })
 
 describe('tool set', () => {
-  it('has a tier prefix on every tool and stays small in the prompt', () => {
+  it('has a tier prefix on every tool and stays small in the prompt', async () => {
     // With an OAuth app kit also registers auth_login.
     const tools = [...allTools(), authLogin]
     for (const t of tools) expect(tierOf(t.name), t.name).toBeDefined()
-    const prompt = tools.map((t) => t.name + t.description + JSON.stringify(z.toJSONSchema(z.object(t.input)))).join('')
-    // ~3K tokens: every request carries the tool list.
-    expect(prompt.length).toBeLessThan(12_000)
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
+    const client = new Client({ name: 'test', version: '0' })
+    await Promise.all([createServer(await context(), tools).connect(serverSide), client.connect(clientSide)])
+    const listed = (await client.listTools()).tools
+    expect(listed.map((t) => t.name)).toEqual(tools.map((t) => t.name))
+    expect(listed.find((t) => t.name === 'read_outline')?.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, openWorldHint: true })
+
+    // What the model reads: nothing it cannot use (draft URL, safe-integer bounds, "any key" noise).
+    const prompt = listed.map((t) => t.name + t.description + JSON.stringify(t.inputSchema)).join('')
+    expect(prompt).not.toMatch(/\$schema|9007199254740991|propertyNames|"additionalProperties":\{\}/)
+    // ~2.4K tokens: every request carries the tool list.
+    expect(prompt.length).toBeLessThan(10_000)
+    await client.close()
+  })
+
+  it('reports the package version to clients', async () => {
+    const pkg = JSON.parse(await readFile(join(import.meta.dirname, '..', 'package.json'), 'utf8')) as { version: string }
+    expect(VERSION).toBe(pkg.version)
   })
 })

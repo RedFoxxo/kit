@@ -99,6 +99,22 @@ describe('OAuth sign-in', () => {
     expect(await answer).toContain('Still waiting')
   }, 10_000)
 
+  it('exchanges the code once when the browser sends the callback twice', async () => {
+    const figma = fakeFigma({ tokens: ['access-1'], issue: ['access-1'] })
+    const statuses: number[] = []
+    const auth = oauth(await authFile(), figma.fetchImpl, async (url) => {
+      const authorize = new URL(url)
+      const redirect = new URL(authorize.searchParams.get('redirect_uri')!)
+      redirect.search = new URLSearchParams({ code: 'the-code', state: authorize.searchParams.get('state')! }).toString()
+      // A reload or a double submit while the first exchange is still running.
+      for (let i = 0; i < 2; i++) void fetch(redirect).then((r) => statuses.push(r.status), () => statuses.push(0))
+      return true
+    })
+    expect(await auth.login(false)).toBe('Signed in to Figma as Ada (ada@example.com).')
+    expect(figma.calls.filter((c) => c.path === '/v1/oauth/token')).toHaveLength(1)
+    await expect.poll(() => statuses.sort()).toEqual([200, 409])
+  })
+
   it('answers with the link when no browser can be opened', async () => {
     const figma = fakeFigma({ tokens: [] })
     const auth = oauth(await authFile(), figma.fetchImpl, async () => false)
@@ -167,6 +183,16 @@ describe('OAuth tokens', () => {
     expect(!next.ok && next.message).toContain('expired or was revoked. Call auth_login')
     expect(figma.calls).toEqual([])
     expect(JSON.stringify([result, next])).not.toMatch(/refresh-1|access-1|shh-secret/)
+  })
+
+  it('keeps the sign-in when Figma rate-limits the refresh', async () => {
+    const figma = fakeFigma({ tokens: ['access-1'], refreshStatus: 429 })
+    const file = await authFile({ accessToken: 'access-1', refreshAt: Date.now() - 1 })
+    const http = createHttp({ auth: oauth(file, figma.fetchImpl), apiBase: API }, figma.fetchImpl)
+
+    // The token is still valid for a day: use it and try the refresh again later.
+    expect(await http.json('/v1/files/KEY')).toMatchObject({ ok: true })
+    expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({ accessToken: 'access-1', refreshToken: 'refresh-1' })
   })
 
   it('renews a short-lived token halfway through its life, not on every request', async () => {

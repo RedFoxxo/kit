@@ -1,3 +1,5 @@
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FileStore } from '../src/figma/store.js'
 import { KEY, context, sampleFile } from './fixture.js'
@@ -6,6 +8,14 @@ const META = `/v1/files/${KEY}/meta`
 const FILE = `/v1/files/${KEY}`
 
 describe('FileStore', () => {
+  it('keeps cached designs in folders only the user can open', async () => {
+    const ctx = await context()
+    const files = new FileStore(ctx.http, join(ctx.dir, 'cache'), () => 0)
+    await files.get(KEY)
+    expect((await stat(join(ctx.dir, 'cache'))).mode & 0o077).toBe(0)
+    expect((await stat(files.dir(KEY))).mode & 0o077).toBe(0)
+  })
+
   it('downloads a file once per version', async () => {
     let now = 0
     const ctx = await context()
