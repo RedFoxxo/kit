@@ -5,7 +5,10 @@ Versions follow [Semantic Versioning](https://semver.org/). The version lives in
 MCP clients in the server handshake. The kit bridge plugin has its own
 `PROTOCOL` number (`src/bridge/bridge.ts`, `plugin/code.js`).
 
-## 1.2.0 — 2026-11-19
+## 1.2.1 — 2026-11-19
+
+1.2.0 was never published: the npm registry kept it in a stuck staged state.
+1.2.1 is the same code.
 
 - **Run `kit plugin` again after updating** (`npx -y @redfoxxo/kit@1 plugin`),
   then close and relaunch kit bridge in Figma. The plugin now proves itself
